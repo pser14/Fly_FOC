@@ -19,9 +19,14 @@ extern float Kp, Ki, Kd;
 typedef struct 
 { 
   float voltage_power_supply;
-  float Ualpha, Ubeta;
-  float Ua, Ub, Uc;
-  float dc_a, dc_b, dc_c;
+  float Ualpha;
+  float Ubeta;
+  float Ua;
+  float Ub;
+  float Uc;
+  float dc_a;
+  float dc_b;
+  float dc_c;
 }motor_data_t;
 
 //速度PID参数结构体

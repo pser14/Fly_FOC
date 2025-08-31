@@ -155,25 +155,6 @@ float velocityPidcontroller(float error,float dt){
 
 }
 
-// float pidController(float error, float dt) {
-//     static float integral = 0;        // 积分项累积值
-//     static float previous_error = 0;  // 上一次误差值
-    
-//     // PID参数 - 需要根据实际电机响应调整
-//     float kp = 0.133;   // 比例系数
-//     float ki = 0.1;   // 积分系数
-//     float kd = 0.5;  // 微分系数
-    
-//     integral += error * dt;  // 积分项累积
-//     integral = constrain(integral, -10.0, 10.0);  // 积分限幅防止积分饱和
-    
-//     float derivative = (error - previous_error) / dt;  // 微分项计算
-//     previous_error = error;  // 更新上一次误差
-    
-//     // 计算PID输出：比例项 + 积分项 + 微分项
-//     return kp * error + ki * integral + kd * derivative;
-// }
-
 float angleDifference(float target, float current) {
     float error = target - current;  // 原始误差
     // 将误差规范到[-180, 180]度范围内

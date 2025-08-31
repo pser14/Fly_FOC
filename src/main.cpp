@@ -111,15 +111,45 @@ void serialTask(void *pvParameters) {
             String input = Serial.readStringUntil('\n');  // 读取一行输入
             input.trim();  // 去除首尾空白字符
             
-            float new_target = input.toFloat();  // 转换为浮点数
+            // float new_target = input.toFloat();  // 转换为浮点数
             // 验证输入有效性
-            if (!isnan(new_target) && new_target >= 0 && new_target <= 360) {
-                // 安全更新目标角度
-                if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-                    control_data.target_angle = new_target;
-                    xSemaphoreGive(dataMutex);
-                    Serial.printf("New target: %.2f\n", new_target);  // 确认消息
-                }
+            // if (!isnan(new_target) && new_target >= 0 && new_target <= 360) {
+            //     // 安全更新目标角度
+            //     if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+            //         control_data.target_angle = new_target;
+            //         xSemaphoreGive(dataMutex);
+            //         Serial.printf("New target: %.2f\n", new_target);  // 确认消息
+            //     }
+            // }
+
+            //动态设置Kp
+            if (input.startsWith("KP ")){
+              float kp = input.substring(3).toFloat();
+              if (!isnan(kp) && kp >= 0){
+                velocity_pid.Kp = kp;
+                Serial.printf("KP set to: %.3f\n",kp);
+              }
+
+            }
+
+            //动态设置Ki
+            else if (input.startsWith("KD ")){
+              float ki = input.substring(3).toFloat();
+              if (!isnan(ki) && ki >= 0){
+                velocity_pid.Ki = ki;
+                Serial.printf("KI set to: %.3f\n",ki);
+              }
+
+            }
+
+            //动态设置Kd
+            else if (input.startsWith("KI ")){
+              float kd = input.substring(3).toFloat();
+              if (!isnan(kd) && kd >= 0){
+                velocity_pid.Kd = kd;
+                Serial.printf("KD set to: %.3f\n",kd);
+              }
+
             }
         }
         
