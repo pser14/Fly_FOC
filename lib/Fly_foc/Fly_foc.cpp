@@ -10,7 +10,7 @@ float intergral = 0,error_prev = 0;
 float current_angel_input = 0;
 
 velocity_pid_t velocity_pid = {0.5,0.2,0.01,0,0,6};
-control_data_t control_data = {0,0,40,0};
+control_data_t control_data = {0,0,400,0,false};
 motor_data_t motor_data ={12.0,0,0,0,0,0,0,0,0};
 
 void Motor_init(int OUTPUTA,int OUTPUTB,int OUTPUTC,int ENABLE_PIN)

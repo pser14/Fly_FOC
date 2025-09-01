@@ -45,7 +45,9 @@ typedef struct {
   float current_angle;                 //当前角度
   float target_velocity;               //目标速度
   float current_velocity;              //当前速度
+  bool  enable;
 }control_data_t;
+
 
 //全局声明参数结构体
 extern velocity_pid_t velocity_pid;

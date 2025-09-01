@@ -47,7 +47,7 @@ void velocityTask(void *pvParameters){
       uint32_t delta_time = current_time - previous_time;
       if(delta_time > 0){
         float angle_diff = angleDifference(current_angle,previous_angle);
-        float raw_velocity = (angle_diff * 1000000.0f) / delta_time;
+        float raw_velocity = (angle_diff * 100000.0f) / delta_time;
         float filtered_velocity = lowPassFillter(raw_velocity,filtered_velocity,filter_alpha);
 
         if(xSemaphoreTake(dataMutex,pdMS_TO_TICKS(5)) == pdTRUE){
@@ -78,6 +78,8 @@ void controlTask(void *pvParameters) {
             xSemaphoreGive(dataMutex);
         }
         
+        //只有电机为使能的情况下才进行控制
+        if (local_data.enable == true){
         // float error = angleDifference(local_data.target_angle, local_data.current_angle);
         // float Uq = pidController(error, 0.002);
         
@@ -89,16 +91,13 @@ void controlTask(void *pvParameters) {
         
         // float elec_angle = EleAngle(local_data.current_angle, pole_pairs);
         OutputValtage(Uq, 0,-elec_angle);  // 注意电气角度取反，取决于电机相序
+        }
         
+        else{
+          OutputValtage(0,0,0);
+        }
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
-}
-
-//速度闭环控制任务
-
-void velocityPidControlTask(void *parameters){
-
-
 }
 
 // 串口通信任务 - 处理用户输入和状态输出
@@ -122,14 +121,31 @@ void serialTask(void *pvParameters) {
             //     }
             // }
 
+            //使能电机
+            if (input.equals("ENABLE")){
+              if (xSemaphoreTake(dataMutex,pdMS_TO_TICKS(5)) == pdTRUE){
+                control_data.enable = true;
+                xSemaphoreGive(dataMutex);
+              }
+              Serial.printf("MOTOR ENABLED!");
+            }
+
+            //失能电机
+            else if(input.equals("DISABLE")){
+              if (xSemaphoreTake(dataMutex,pdMS_TO_TICKS(5)) == pdTRUE){
+                control_data.enable = false;
+                xSemaphoreGive(dataMutex);
+              }
+              Serial.printf("MOTOR DISABLED!");
+            }
+
             //动态设置Kp
-            if (input.startsWith("KP ")){
+            else if (input.startsWith("KP ")){
               float kp = input.substring(3).toFloat();
               if (!isnan(kp) && kp >= 0){
                 velocity_pid.Kp = kp;
                 Serial.printf("KP set to: %.3f\n",kp);
               }
-
             }
 
             //动态设置Ki
@@ -139,7 +155,6 @@ void serialTask(void *pvParameters) {
                 velocity_pid.Ki = ki;
                 Serial.printf("KI set to: %.3f\n",ki);
               }
-
             }
 
             //动态设置Kd
@@ -149,7 +164,6 @@ void serialTask(void *pvParameters) {
                 velocity_pid.Kd = kd;
                 Serial.printf("KD set to: %.3f\n",kd);
               }
-
             }
         }
         
@@ -162,7 +176,7 @@ void serialTask(void *pvParameters) {
         }
         
         // 输出格式化状态信息
-        Serial.printf("Target:%.2f, Current:%.2f, Velocity:%.2f\n",
+        Serial.printf("Target_vel:%.2f, Current_ang:%.2f, Current_Vel:%.2f\n",
                      local_data.target_velocity, 
                      local_data.current_angle, 
                      local_data.current_velocity);
@@ -212,11 +226,6 @@ void setup(){
     &velocityTaskHandle,//任务句柄
     1                   //运行核心（1）
   );
-
-  // //创建速度闭环控制任务
-  // xTaskCreatePinnedToCore(
-    
-  // );
 
   // 创建电机控制任务（核心1，优先级4 - 最高）
   xTaskCreatePinnedToCore(
