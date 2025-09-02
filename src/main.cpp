@@ -48,7 +48,7 @@ void velocityTask(void *pvParameters){
       if(delta_time > 0){
         float angle_diff = angleDifference(current_angle,previous_angle);
         float raw_velocity = (angle_diff * 100000.0f) / delta_time;
-        float filtered_velocity = lowPassFillter(raw_velocity,filtered_velocity,filter_alpha);
+        filtered_velocity = lowPassFillter(raw_velocity,filtered_velocity,filter_alpha);
 
         if(xSemaphoreTake(dataMutex,pdMS_TO_TICKS(5)) == pdTRUE){
           control_data.current_velocity = filtered_velocity;
@@ -149,7 +149,7 @@ void serialTask(void *pvParameters) {
             }
 
             //动态设置Ki
-            else if (input.startsWith("KD ")){
+            else if (input.startsWith("KI ")){
               float ki = input.substring(3).toFloat();
               if (!isnan(ki) && ki >= 0){
                 velocity_pid.Ki = ki;
@@ -158,7 +158,7 @@ void serialTask(void *pvParameters) {
             }
 
             //动态设置Kd
-            else if (input.startsWith("KI ")){
+            else if (input.startsWith("KD ")){
               float kd = input.substring(3).toFloat();
               if (!isnan(kd) && kd >= 0){
                 velocity_pid.Kd = kd;
