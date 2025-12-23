@@ -10,6 +10,9 @@
 #define PWMB 33
 #define PWMC 25
 #define ENABLE_PIN 12
+#define I2C_SDA 21
+#define I2C_SCL 22
+
 
 int pole_pairs = 7;
 
