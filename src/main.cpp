@@ -10,8 +10,14 @@
 #define PWMB 33
 #define PWMC 25
 #define ENABLE_PIN 12
-#define I2C_SDA 21
-#define I2C_SCL 22
+
+typedef struct {
+    float target_angle;     // 目标角度（度）
+    float current_angle;    // 当前角度（度）
+    float target_velocity;  // 目标角速度（度/秒）
+    float current_velocity; // 当前角速度（度/秒）
+    bool enable;           // 电机使能状态
+} control_data_t;
 
 
 int pole_pairs = 7;
