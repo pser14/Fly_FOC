@@ -1,5 +1,5 @@
 #include "Wire.h" 
-#include "AS5600_foc.h"
+#include "AS5600_foc.hpp"
 #include <Arduino.h> 
 
 #define AS5600_ADDRESS 0x36

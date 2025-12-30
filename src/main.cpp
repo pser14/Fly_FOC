@@ -1,5 +1,5 @@
-#include "AS5600_foc.h"
-#include "Fly_foc.h"
+#include "Fly_foc.hpp"
+#include "AS5600_foc.hpp"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
@@ -11,22 +11,11 @@
 #define PWMC 25
 #define ENABLE_PIN 12
 
-typedef struct {
-    float target_angle;     // 目标角度（度）
-    float current_angle;    // 当前角度（度）
-    float target_velocity;  // 目标角速度（度/秒）
-    float current_velocity; // 当前角速度（度/秒）
-    bool enable;           // 电机使能状态
-} control_data_t;
-
-
 int pole_pairs = 7;
 
 TaskHandle_t controlTaskHandle = NULL;    // 电机控制任务句柄
 TaskHandle_t serialTaskHandle = NULL;     // 串口通信任务句柄
 TaskHandle_t velocityTaskHandle = NULL;   // 速度计算任务句柄
-QueueHandle_t angleQueue = NULL;          // 角度队列（声明但未使用）
-QueueHandle_t commandQueue = NULL;        // 命令队列（声明但未使用）
 SemaphoreHandle_t i2cMutex = NULL; 
 SemaphoreHandle_t dataMutex = NULL;        //用于数据保护的互斥锁
 
@@ -77,6 +66,7 @@ void velocityTask(void *pvParameters){
 void controlTask(void *pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(2); // 500Hz控制频率（2ms间隔）
+
     
     for (;;) {
         control_data_t local_data;  // 本地数据副本，减少锁持有时间
@@ -174,6 +164,18 @@ void serialTask(void *pvParameters) {
                 Serial.printf("KD set to: %.3f\n",kd);
               }
             }
+
+            //动态设置目标速度
+            else if (input.startsWith("TVEL ")){
+              float target_vel = input.substring(5).toFloat();
+              if (!isnan(target_vel)){
+                if (xSemaphoreTake(dataMutex,pdMS_TO_TICKS(5)) == pdTRUE){
+                  control_data.target_velocity = target_vel;
+                  xSemaphoreGive(dataMutex);
+                }
+                Serial.printf("Target velocity set to: %.2f\n",target_vel);
+              }
+            }
         }
         
         // 准备输出状态信息
@@ -214,6 +216,7 @@ void setup(){
   Serial.begin(115200);
   Motor_init(PWMA,PWMB,PWMC,ENABLE_PIN);
   Init_AS5600();
+  calibrateMotor();
 
   i2cMutex = xSemaphoreCreateMutex();
   dataMutex = xSemaphoreCreateMutex();
