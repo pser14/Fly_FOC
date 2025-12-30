@@ -1,5 +1,5 @@
-#include "Fly_foc.h"
-#include "AS5600_foc.h"
+#include "Fly_foc.hpp"
+#include "AS5600_foc.hpp"
 
 int pwmA = 32;
 int pwmB = 33;
@@ -10,7 +10,7 @@ float intergral = 0,error_prev = 0;
 float current_angel_input = 0;
 
 velocity_pid_t velocity_pid = {0.5,0.2,0.01,0,0,6};
-control_data_t control_data = {0,0,-400,0,false};
+control_data_t control_data = {0,0,-200,0,false};
 motor_data_t motor_data ={12.0,0,0,0,0,0,0,0,0};
 
 void Motor_init(int OUTPUTA,int OUTPUTB,int OUTPUTC,int ENABLE_PIN)
@@ -117,8 +117,19 @@ String serialReceiveUserCommand() {
 //电机零点校准
 void calibrateMotor() {
   Serial.println("开始电机校准...");
-  zero_electric_angle = 0; // 实际应用需要自动校准
+  float elec_angle = EleAngle(control_data.current_angle,7);
+
+  float align_voltage = 3.0;                   // 施加3V的对齐电压
+
+  delay(1000);                                 // 等待系统稳定
+  OutputValtage(align_voltage, 0,-elec_angle);           // 对齐到0度位置
+
+  float aligned_shaft_angle = readAngle(); // 读取当前角度作为对齐角度
+  zero_electric_angle = -aligned_shaft_angle * 7 * PI / 180; // 计算电气零点偏移
+
   Serial.println("校准完成");
+  Serial.println("电机零点角度: " + String(zero_electric_angle * 180 / (7 * PI)) + "度");
+
 }
 
 float pidController(float error,float dt) {
