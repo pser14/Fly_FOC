@@ -1,16 +1,18 @@
 #include "Fly_foc.hpp"
 #include "AS5600_foc.hpp"
 
+#define _3PI_2 4.71238898038f
+
 int pwmA = 32;
 int pwmB = 33;
 int pwmC = 25;
 float zero_electric_angle = 0;
-float Kp = 0.03, Ki = 0, Kd = 0;
+float Kp = 0.03, Ki = 0.1, Kd = 0;
 float intergral = 0,error_prev = 0;
 float current_angel_input = 0;
 
 velocity_pid_t velocity_pid = {0.5,0.2,0.01,0,0,6};
-control_data_t control_data = {0,0,-200,0,false};
+control_data_t control_data = {0,0,-200,0,false,false,false};
 motor_data_t motor_data ={12.0,0,0,0,0,0,0,0,0};
 
 void Motor_init(int OUTPUTA,int OUTPUTB,int OUTPUTC,int ENABLE_PIN)
@@ -82,6 +84,11 @@ float EleAngle(float shaft_angle,int pole_pairs)
     return eletric_angle*PI/180;
 }
 
+float calibratedEleAngle(float shaft_angle, int pole_pairs) {
+    float elec_angle = EleAngle(shaft_angle, pole_pairs) - zero_electric_angle;
+    return fmod(elec_angle, 2 * PI);
+}
+
 String serialReceiveUserCommand() {
   
   // a string to hold incoming data
@@ -116,31 +123,89 @@ String serialReceiveUserCommand() {
 
 //电机零点校准
 void calibrateMotor() {
-  Serial.println("开始电机校准...");
-  float elec_angle = EleAngle(control_data.current_angle,7);
+    Serial.println("开始电机校准...");
+    Serial.println("请确保电机轴可以自由旋转！");
 
-  float align_voltage = 3.0;                   // 施加3V的对齐电压
-
-  delay(1000);                                 // 等待系统稳定
-  OutputValtage(align_voltage, 0,-elec_angle);           // 对齐到0度位置
-
-  float aligned_shaft_angle = readAngle(); // 读取当前角度作为对齐角度
-  zero_electric_angle = -aligned_shaft_angle * 7 * PI / 180; // 计算电气零点偏移
-
-  Serial.println("校准完成");
-  Serial.println("电机零点角度: " + String(zero_electric_angle * 180 / (7 * PI)) + "度");
-
+    const float align_voltage = 3.0f;      // 对齐电压
+    const uint32_t align_time_ms = 1000;   // 对齐时间
+    const int samples = 100;               // 采样点数
+    float angle_sum = 0.0f;
+    int valid_samples = 0;
+    
+    // 先读取初始角度（未对齐时）
+    float initial_angle = readAngle();
+    Serial.printf("初始角度: %.2f度\n", initial_angle);
+    
+    // 对齐到特定方向（_3PI_2 = 270度）
+    Serial.println("施加对齐电压...");
+    OutputValtage(align_voltage, 0, _3PI_2);
+    delay(align_time_ms);
+    
+    // 多次采样求平均，提高精度
+    Serial.println("采样对齐角度...");
+    for (int i = 0; i < samples; i++) {
+        float angle = readAngle();  // 使用安全的读取函数
+        
+        if (!isnan(angle)) {
+            angle_sum += angle;
+            valid_samples++;
+        }
+        
+        delay(2);  // 采样间隔
+    }
+    
+    // 停止输出，让电机自由
+    OutputValtage(0, 0, 0);
+    delay(500);
+    
+    if (valid_samples > 0) {
+        float aligned_shaft_angle = angle_sum / valid_samples;  // 平均机械角度（度）
+        
+        // 计算电气零点偏移
+        // 对齐时的电气角度应该是_3PI_2（270度）
+        // 实际读取的机械角度对应的电气角度是：EleAngle(aligned_shaft_angle, pole_pairs)
+        // 零点偏移 = 期望电气角度 - 实际电气角度
+        zero_electric_angle = _3PI_2 - EleAngle(aligned_shaft_angle, 7);
+        
+        // 规范化到0-2π范围内
+        while (zero_electric_angle > 2 * PI) {
+            zero_electric_angle -= 2 * PI;
+        }
+        while (zero_electric_angle < 0) {
+            zero_electric_angle += 2 * PI;
+        }
+        
+        Serial.println("校准完成");
+        Serial.printf("对齐后平均角度: %.2f度\n", aligned_shaft_angle);
+        Serial.printf("电气零点偏移: %.4f rad (%.2f度)\n", 
+                     zero_electric_angle, zero_electric_angle * 180.0f / PI);
+        
+        // 验证校准结果
+        Serial.println("验证校准结果...");
+        delay(200);
+        
+        float test_angle = readAngle();
+        if (!isnan(test_angle)) {
+            float elec_angle = EleAngle(test_angle, 7) + zero_electric_angle;
+            elec_angle = fmod(elec_angle, 2 * PI);
+            Serial.printf("当前机械角度: %.2f度, 校准后电气角度: %.2f度\n",
+                         test_angle, elec_angle * 180.0f / PI);
+        }
+    } else {
+        Serial.println("校准失败：无法读取有效角度数据！");
+    }
+    
+    Serial.println("校准流程结束");
 }
 
-float pidController(float error,float dt) {
+float positionPidController(float error,float dt) {
 
   float proportional = Kp * error;
 
   intergral += (dt/2) * (error + error_prev);
   intergral = constrain(intergral, -6, 6);
 
-  // float output = Kp*error + Ki*intergral;
-  float output = Kp*error;
+  float output = Kp*error + Ki*intergral;
 
   error_prev = error;
 
@@ -160,7 +225,7 @@ float velocityPidcontroller(float error,float dt){
   float derivative = velocity_pid.Kd * (error - velocity_pid.prev_error) / dt;
   velocity_pid.prev_error = error;
   //对输出进行限制，大小约为±6伏
-  float output = proportional + intergral + derivative;
+  float output = proportional;
   output = constrain(output,-velocity_pid.output_limit,velocity_pid.output_limit);
   return output;
 
@@ -174,7 +239,7 @@ float angleDifference(float target, float current) {
     return error;
 }
 
-float lowPassFillter(float input, float prev_output, float alpha){
+float lowPassFilter(float input, float prev_output, float alpha){
   float velocity = alpha * input + (1 - alpha) * prev_output;
   return velocity;
 }

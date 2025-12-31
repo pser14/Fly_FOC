@@ -44,7 +44,9 @@ typedef struct control_data{
   float current_angle;                 //当前角度
   float target_velocity;               //目标速度
   float current_velocity;              //当前速度
-  bool  enable;                        //电机使能状态
+  bool enable;                         //电机使能状态
+  bool ang_enable;                     //位置环使能状态
+  bool vel_enable;                     //速度环使能状态
 }control_data_t;
 
 
@@ -60,13 +62,15 @@ void OutputValtage(float Uq, float Ud, float angle_el);
 void calibrateMotor();
 float Normalization(float angle);
 float EleAngle(float shaft_angle, int pole_pairs);
-float lowPassFillter(float input, float prev_output, float alpha);
-float pidController(float error,float dt);
+float lowPassFilter(float input, float prev_output, float alpha);
+float positionPidController(float error,float dt);
 float velocityPidcontroller(float error,float dt);
 String serialReceiveUserCommand();
 void processCommand(String cmd);
 void handleSerialCommands();
 float angleDifference(float target, float current);
 float IRAM_ATTR AS5600_ReadRawAngle();
+float velocityOpenloop(float target_velocity);
+float calibratedEleAngle(float shaft_angle, int pole_pairs);
 
 #endif
