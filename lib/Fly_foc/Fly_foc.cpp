@@ -1,11 +1,13 @@
 #include "Fly_foc.hpp"
 #include "AS5600_foc.hpp"
 
+#define _3PI_2 4.71238898038f
+
 int pwmA = 32;
 int pwmB = 33;
 int pwmC = 25;
 float zero_electric_angle = 0;
-float Kp = 0.03, Ki = 0, Kd = 0;
+float Kp = 2, Ki = 0, Kd = 0;
 float intergral = 0,error_prev = 0;
 float current_angel_input = 0;
 
@@ -117,15 +119,17 @@ String serialReceiveUserCommand() {
 //电机零点校准
 void calibrateMotor() {
   Serial.println("开始电机校准...");
-  float elec_angle = EleAngle(control_data.current_angle,7);
 
-  float align_voltage = 3.0;                   // 施加3V的对齐电压
+  float align_voltage = 3.0;                       // 施加3V的对齐电压
 
-  delay(1000);                                 // 等待系统稳定
-  OutputValtage(align_voltage, 0,-elec_angle);           // 对齐到0度位置
+  OutputValtage(align_voltage, 0,_3PI_2);           // 对齐到0度位置
+  delay(1000);                                      // 等待电机稳定                     
 
-  float aligned_shaft_angle = readAngle(); // 读取当前角度作为对齐角度
-  zero_electric_angle = -aligned_shaft_angle * 7 * PI / 180; // 计算电气零点偏移
+  // `readAngle()` returns degrees (0..360). `EleAngle()` expects degrees and
+  // converts to radians internally, so do NOT run `Normalization()` (which
+  // expects radians) on the degree value — that produced incorrect offsets.
+  float aligned_shaft_angle = readAngle(); // 读取当前角度（度）作为对齐角度
+  zero_electric_angle = -EleAngle(aligned_shaft_angle, 7); // 计算电气零点偏移（弧度）
 
   Serial.println("校准完成");
   Serial.println("电机零点角度: " + String(zero_electric_angle * 180 / (7 * PI)) + "度");
@@ -160,7 +164,7 @@ float velocityPidcontroller(float error,float dt){
   float derivative = velocity_pid.Kd * (error - velocity_pid.prev_error) / dt;
   velocity_pid.prev_error = error;
   //对输出进行限制，大小约为±6伏
-  float output = proportional + intergral + derivative;
+  float output = proportional;
   output = constrain(output,-velocity_pid.output_limit,velocity_pid.output_limit);
   return output;
 
@@ -174,8 +178,38 @@ float angleDifference(float target, float current) {
     return error;
 }
 
-float lowPassFillter(float input, float prev_output, float alpha){
+float lowPassFilter(float input, float prev_output, float alpha){
   float velocity = alpha * input + (1 - alpha) * prev_output;
   return velocity;
 }
 
+
+//开环速度函数
+float velocityOpenloop(float target_velocity){
+  unsigned long now_us = micros();  //获取从开启芯片以来的微秒数，它的精度是 4 微秒。 micros() 返回的是一个无符号长整型（unsigned long）的值
+  float shaft_angle = 0;
+  float open_loop_timestamp = 0;
+
+  //计算当前每个Loop的运行时间间隔
+  float Ts = (now_us - open_loop_timestamp) * 1e-6f;
+
+  //由于 micros() 函数返回的时间戳会在大约 70 分钟之后重新开始计数，在由70分钟跳变到0时，TS会出现异常，因此需要进行修正。如果时间间隔小于等于零或大于 0.5 秒，则将其设置为一个较小的默认值，即 1e-3f
+  if(Ts <= 0 || Ts > 0.5f) Ts = 1e-3f;
+  
+
+  // 通过乘以时间间隔和目标速度来计算需要转动的机械角度，存储在 shaft_angle 变量中。在此之前，还需要对轴角度进行归一化，以确保其值在 0 到 2π 之间。
+  shaft_angle = Normalization(shaft_angle + target_velocity*Ts);
+  //以目标速度为 10 rad/s 为例，如果时间间隔是 1 秒，则在每个循环中需要增加 10 * 1 = 10 弧度的角度变化量，才能使电机转动到目标速度。
+  //如果时间间隔是 0.1 秒，那么在每个循环中需要增加的角度变化量就是 10 * 0.1 = 1 弧度，才能实现相同的目标速度。因此，电机轴的转动角度取决于目标速度和时间间隔的乘积。
+
+  // 使用早前设置的voltage_power_supply的1/3作为Uq值，这个值会直接影响输出力矩
+  // 最大只能设置为Uq = voltage_power_supply/2，否则ua,ub,uc会超出供电电压限幅
+  float Uq = 12/3;
+
+  
+  // OutputValtage(Uq,  0, -EleAngle(shaft_angle, 7));
+  
+  open_loop_timestamp = now_us;  //用于计算下一个时间间隔
+
+  return shaft_angle;
+}

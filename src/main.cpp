@@ -12,6 +12,8 @@
 #define ENABLE_PIN 12
 
 int pole_pairs = 7;
+// open-loop mapping gain (Uq = openloop_gain * target_velocity)
+float openloop_gain = 0.5f;
 
 TaskHandle_t controlTaskHandle = NULL;    // 电机控制任务句柄
 TaskHandle_t serialTaskHandle = NULL;     // 串口通信任务句柄
@@ -46,7 +48,7 @@ void velocityTask(void *pvParameters){
       if(delta_time > 0){
         float angle_diff = angleDifference(current_angle,previous_angle);
         float raw_velocity = (angle_diff * 100000.0f) / delta_time;
-        filtered_velocity = lowPassFillter(raw_velocity,filtered_velocity,filter_alpha);
+        filtered_velocity = lowPassFilter(raw_velocity,filtered_velocity,filter_alpha);
 
         if(xSemaphoreTake(dataMutex,pdMS_TO_TICKS(5)) == pdTRUE){
           control_data.current_velocity = filtered_velocity;
@@ -66,7 +68,10 @@ void velocityTask(void *pvParameters){
 void controlTask(void *pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(2); // 500Hz控制频率（2ms间隔）
-
+    
+    // 开环控制变量
+    static float openloop_angle = 0;      // 开环角度累积
+    static uint32_t last_time = 0;        // 上次时间
     
     for (;;) {
         control_data_t local_data;  // 本地数据副本，减少锁持有时间
@@ -77,28 +82,88 @@ void controlTask(void *pvParameters) {
             xSemaphoreGive(dataMutex);
         }
         
-        //只有电机为使能的情况下才进行控制
+        // 只有电机为使能的情况下才进行控制
         if (local_data.enable == true){
-        // float error = angleDifference(local_data.target_angle, local_data.current_angle);
-        // float Uq = pidController(error, 0.002);
-        
-        // Uq = constrain(Uq, -6.0, 6.0);
-
-        float error = control_data.target_velocity - control_data.current_velocity;
-        float Uq = velocityPidcontroller(error,0.02);
-        float elec_angle = EleAngle(local_data.current_angle,pole_pairs);
-        
-        // float elec_angle = EleAngle(local_data.current_angle, pole_pairs);
-        OutputValtage(Uq, 0,-elec_angle);  // 注意电气角度取反，取决于电机相序
+            // =========== 开环速度控制方案1：直接映射 ===========
+            // 方案1：简单的线性映射（您原来的方案）
+            // float Uq = openloop_gain * local_data.target_velocity;
+            // Uq = constrain(Uq, -6.0f, 6.0f);
+            // =============================================
+            
+            // =========== 开环速度控制方案2：角度积分法 ===========
+            // 方案2：通过积分目标速度得到电气角度（更常用的开环方法）
+            uint32_t current_time = micros();
+            if (last_time > 0) {
+                float dt = (current_time - last_time) / 1000000.0f; // 转换为秒
+                
+                // 计算角度增量（弧度）
+                // 目标速度单位：度/秒，转换为弧度/秒
+                float velocity_rad_per_sec = local_data.target_velocity * PI / 180.0f;
+                
+                // 积分得到机械角度（弧度）
+                openloop_angle += velocity_rad_per_sec * dt;
+                
+                // 限制角度在0-2π范围内
+                if (openloop_angle > 2 * PI) {
+                    openloop_angle -= 2 * PI;
+                } else if (openloop_angle < 0) {
+                    openloop_angle += 2 * PI;
+                }
+                
+                // 设置固定幅值的电压，通过角度变化实现速度控制
+                float Uq = constrain(openloop_gain * fabs(local_data.target_velocity), 0.1f, 6.0f);
+                
+                // 计算电气角度（考虑极对数）
+                float elec_angle = fmod(openloop_angle * pole_pairs, 2 * PI);
+                
+                // 输出开环控制电压
+                OutputValtage(Uq, 0, -elec_angle);  // 注意电气角度取反，取决于电机相序
+                
+                // 可选：调试输出
+                // Serial.printf("Uq: %.2f, Target_vel: %.2f, Angle: %.2f rad\n", 
+                //               Uq, local_data.target_velocity, openloop_angle);
+            }
+            last_time = current_time;
+            // =============================================
+            
+            // =========== 开环速度控制方案3：简单的斜坡法 ===========
+            // 方案3：简单的斜坡电压（更简单，适合启动）
+            // static float current_Uq = 0;
+            // float target_Uq = openloop_gain * local_data.target_velocity;
+            // target_Uq = constrain(target_Uq, -6.0f, 6.0f);
+            
+            // // 添加斜坡限制，避免突变
+            // float max_change = 0.1f; // 每次最多变化0.1V
+            // if (fabs(target_Uq - current_Uq) > max_change) {
+            //     if (target_Uq > current_Uq) {
+            //         current_Uq += max_change;
+            //     } else {
+            //         current_Uq -= max_change;
+            //     }
+            // } else {
+            //     current_Uq = target_Uq;
+            // }
+            
+            // // 简单的角度累加
+            // static float simple_angle = 0;
+            // simple_angle += current_Uq * 0.1f; // 角度变化率与电压成正比
+            // if (simple_angle > 2 * PI) simple_angle -= 2 * PI;
+            // if (simple_angle < 0) simple_angle += 2 * PI;
+            
+            // float elec_angle = fmod(simple_angle * pole_pairs, 2 * PI);
+            // OutputValtage(current_Uq, 0, -elec_angle);
+            // =============================================
+        } else {
+            // 电机失能，停止输出
+            OutputValtage(0, 0, 0);
+            // 重置开环变量
+            openloop_angle = 0;
+            last_time = 0;
         }
         
-        else{
-          OutputValtage(0,0,0);
-        }
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
-
 // 串口通信任务 - 处理用户输入和状态输出
 void serialTask(void *pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
